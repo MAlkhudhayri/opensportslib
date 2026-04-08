@@ -1,15 +1,11 @@
-TASK: pretraining
+TASK: representation_learning
 
-SSL:
-  method: dino
-  dino:
-    momentum: 0.996            # EMA momentum for teacher
-    teacher_temp: 0.04         # temperature for teacher softmax
-    student_temp: 0.1          # temperature for student softmax
-    center_momentum: 0.9       # momentum for output centering
-    head_hidden_dim: 2048
-    head_bottleneck_dim: 256
-    head_out_dim: 65536
+REPRESENTATION:
+  method: simclr
+  simclr:
+    temperature: 0.1           # NT-Xent temperature
+    proj_hidden_dim: 2048      # projection head hidden dim
+    proj_out_dim: 128          # projection head output dim
 
 DATA:
   data_dir: /path/to/unlabeled/videos
@@ -17,14 +13,14 @@ DATA:
   frame_size: [224, 224]
   patch_size: 16
   tubelet_size: 2
-  batch_size: 64
+  batch_size: 256              # SimCLR benefits from large batches
   num_workers: 4
   input_fps: 25
   target_fps: null
   augmentations:
     random_horizontal_flip: true
     color_jitter: true
-    jitter_params: [0.4, 0.4, 0.4, 0.1]
+    jitter_params: [0.8, 0.8, 0.8, 0.2]
     random_crop: true
 
 MODEL:
@@ -34,7 +30,7 @@ MODEL:
     depth: 12
     num_heads: 12
   decoder:
-    depth: 0                   # not used for DINO
+    depth: 0                   # not used for SimCLR
     embed_dim: 0
 
 TRAIN:
@@ -43,7 +39,7 @@ TRAIN:
   optimizer:
     type: AdamW
     lr: 0.0001
-    betas: [0.9, 0.95]
+    betas: [0.9, 0.999]
     eps: 0.00000001
     weight_decay: 0.05
     amsgrad: false

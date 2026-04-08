@@ -1,11 +1,11 @@
-# opensportslib/core/trainer/pretraining_trainer.py
+# opensportslib/core/trainer/representation_learning_trainer.py
 
-"""SSL pre-training trainers for MAE, DINO, and SimCLR.
+"""Representation learning trainers for MAE, DINO, and SimCLR.
 
 Provides a base trainer with a method-agnostic training loop, plus
 three method-specific subclasses that implement the forward pass and
-loss computation. Trainer_Pretraining is the top-level dispatcher
-consumed by the API layer.
+loss computation. Trainer_RepresentationLearning is the top-level
+dispatcher consumed by the API layer.
 """
 
 import os
@@ -28,7 +28,7 @@ import torch.distributed as dist
 # base pretraining trainer
 # -------------------------------------------------------------------
 
-class BaseTrainerPretraining:
+class BaseTrainerRepresentationLearning:
     """Method-agnostic training loop for self-supervised pre-training.
 
     Handles epoch iteration, gradient updates, DDP synchronisation,
@@ -115,7 +115,7 @@ class BaseTrainerPretraining:
             epoch_start: the epoch number to start from.
             save_every: save a checkpoint every N epochs.
         """
-        logging.info("Starting SSL pre-training")
+        logging.info("Starting representation learning")
 
         for epoch in range(epoch_start, self.max_epochs):
             logging.info(f"\nEpoch {epoch + 1}/{self.max_epochs}")
@@ -177,7 +177,7 @@ class BaseTrainerPretraining:
                     self.best_checkpoint_path = best_path
 
                     if wandb.run is not None:
-                        artifact = wandb.Artifact("ssl-checkpoint", type="model")
+                        artifact = wandb.Artifact("representation-checkpoint", type="model")
                         artifact.add_file(best_path)
                         wandb.log_artifact(artifact)
 
@@ -186,7 +186,7 @@ class BaseTrainerPretraining:
 
         if self.rank == 0:
             logging.info(f"Best checkpoint: {self.best_checkpoint_path}")
-            logging.info("Pre-training finished.")
+            logging.info("Representation learning finished.")
 
     # -- single epoch logic -----------------------------------------
 
@@ -282,7 +282,7 @@ class BaseTrainerPretraining:
 # method-specific trainers
 # -------------------------------------------------------------------
 
-class MAETrainerPretraining(BaseTrainerPretraining):
+class MAETrainerRepresentationLearning(BaseTrainerRepresentationLearning):
     """Forward pass for Masked Autoencoder pre-training.
 
     Expects batches with pixel_values of shape (B, C, T, H, W).
@@ -304,7 +304,7 @@ class MAETrainerPretraining(BaseTrainerPretraining):
         return loss
 
 
-class DINOTrainerPretraining(BaseTrainerPretraining):
+class DINOTrainerRepresentationLearning(BaseTrainerRepresentationLearning):
     """Forward pass for DINO self-distillation pre-training.
 
     Expects batches with pixel_values as a list of 2 views.
@@ -322,7 +322,7 @@ class DINOTrainerPretraining(BaseTrainerPretraining):
         return output["loss"]
 
 
-class ContrastiveTrainerPretraining(BaseTrainerPretraining):
+class ContrastiveTrainerRepresentationLearning(BaseTrainerRepresentationLearning):
     """Forward pass for SimCLR contrastive pre-training.
 
     Expects batches with pixel_values as a list of 2 views.
@@ -339,10 +339,10 @@ class ContrastiveTrainerPretraining(BaseTrainerPretraining):
 # unified trainer dispatcher
 # -------------------------------------------------------------------
 
-class Trainer_Pretraining:
+class Trainer_RepresentationLearning:
     """High-level trainer that dispatches to the right SSL method trainer.
 
-    Consumed by PretrainingAPI. Responsible for building data loaders,
+    Consumed by RepresentationLearningAPI. Responsible for building data loaders,
     optimizers, schedulers, then delegating to the method-specific
     trainer subclass.
 
@@ -361,8 +361,8 @@ class Trainer_Pretraining:
 
         Args:
             model: the SSL model.
-            train_dataset: training PretrainingDataset.
-            val_dataset: validation PretrainingDataset (optional).
+            train_dataset: training RepresentationLearningDataset.
+            val_dataset: validation RepresentationLearningDataset (optional).
             rank: GPU rank.
             world_size: total number of GPUs.
         """
@@ -373,7 +373,7 @@ class Trainer_Pretraining:
 
         is_ddp = world_size > 1
         seed = self.config.SYSTEM.seed
-        ssl_method = self.config.SSL.method.lower()
+        repr_method = self.config.REPRESENTATION.method.lower()
 
         g = torch.Generator()
         g.manual_seed(seed)
@@ -415,7 +415,7 @@ class Trainer_Pretraining:
             )
 
         # collate function for multi-view methods
-        collate_fn = _multi_view_collate if ssl_method in ("dino", "simclr") else None
+        collate_fn = _multi_view_collate if repr_method in ("dino", "simclr") else None
 
         num_workers = getattr(self.config.DATA, "num_workers", 4)
         batch_size = self.config.DATA.batch_size
@@ -452,14 +452,14 @@ class Trainer_Pretraining:
             )
 
         # select method-specific trainer
-        if ssl_method == "mae":
-            TrainerClass = MAETrainerPretraining
-        elif ssl_method == "dino":
-            TrainerClass = DINOTrainerPretraining
-        elif ssl_method in ("simclr", "contrastive"):
-            TrainerClass = ContrastiveTrainerPretraining
+        if repr_method == "mae":
+            TrainerClass = MAETrainerRepresentationLearning
+        elif repr_method == "dino":
+            TrainerClass = DINOTrainerRepresentationLearning
+        elif repr_method in ("simclr", "contrastive"):
+            TrainerClass = ContrastiveTrainerRepresentationLearning
         else:
-            raise ValueError(f"Unsupported SSL method: {ssl_method}")
+            raise ValueError(f"Unsupported representation learning method: {repr_method}")
 
         warmup_epochs = getattr(self.config.TRAIN, "warmup_epochs", 10)
         save_backbone_only = getattr(self.config.TRAIN, "save_backbone_only", True)

@@ -5,28 +5,28 @@ def build_model(config, device):
     Dispatch model builder based on cfg.MODEL.task
     """
     task = config.TASK.lower()
-    
+
     if task == "classification":
         # return model, processor
         if config.MODEL.backbone.type == "video_mae":
             from opensportslib.models.base.video import build_video_mae_backbone
             return build_video_mae_backbone(config, device)
-        
+
         elif config.MODEL.backbone.type in ["r3d_18", "mc3_18", "r2plus1d_18", "s3d", "mvit_v2_s"]:
             from opensportslib.models.base.vars import MVNetwork
             return MVNetwork(config, config.MODEL.backbone, config.MODEL.neck, config.MODEL.head), None
-        
+
         elif config.MODEL.backbone.type == "graph_conv":
             from opensportslib.models.base.tracking import TrackingModel
             return TrackingModel(config, device), None
 
-        elif config.MODEL.backbone.type in ("dinov3", "clip", "videomae", "videomae2"):
+        elif config.MODEL.backbone.type in ("dinov3", "clip", "videomae", "videomae2", "ssl_vit"):
             from opensportslib.models.base.video import VideoModel
             return VideoModel(config, device), None
-        
+
         else:
             raise ValueError(f"Unsupported backbone type: {config.MODEL.backbone.type}")
-    
+
     elif task == "localization":
         from opensportslib.models.base.e2e import E2EModel
         if config.MODEL.type == "E2E":
@@ -40,16 +40,16 @@ def build_model(config, device):
                             multi_gpu=config.MODEL.multi_gpu)
             return model
 
-    elif task == "pretraining":
-        return _build_ssl_model(config, device)
+    elif task == "representation_learning":
+        return _build_representation_model(config, device)
 
     else:
         raise ValueError(f"Unsupported task: {task}")
 
 
-def _build_ssl_model(config, device):
-    """Build an SSL model based on the configured method."""
-    method = config.SSL.method.lower()
+def _build_representation_model(config, device):
+    """Build a representation learning model based on the configured method."""
+    method = config.REPRESENTATION.method.lower()
     encoder_cfg = config.MODEL.encoder
     data_cfg = config.DATA
 
@@ -59,8 +59,8 @@ def _build_ssl_model(config, device):
     tubelet_size = getattr(data_cfg, "tubelet_size", 2)
 
     if method == "mae":
-        from opensportslib.models.ssl.mae import VideoMAE
-        mae_cfg = config.SSL.mae
+        from opensportslib.models.representation.mae import VideoMAE
+        mae_cfg = config.REPRESENTATION.mae
         decoder_cfg = config.MODEL.decoder
         model = VideoMAE(
             img_size=img_size,
@@ -80,8 +80,8 @@ def _build_ssl_model(config, device):
         )
 
     elif method == "dino":
-        from opensportslib.models.ssl.dino import DINO
-        dino_cfg = config.SSL.dino
+        from opensportslib.models.representation.dino import DINO
+        dino_cfg = config.REPRESENTATION.dino
         model = DINO(
             img_size=img_size,
             patch_size=patch_size,
@@ -101,8 +101,8 @@ def _build_ssl_model(config, device):
         )
 
     elif method in ("simclr", "contrastive"):
-        from opensportslib.models.ssl.contrastive import SimCLR
-        simclr_cfg = config.SSL.simclr
+        from opensportslib.models.representation.contrastive import SimCLR
+        simclr_cfg = config.REPRESENTATION.simclr
         model = SimCLR(
             img_size=img_size,
             patch_size=patch_size,
@@ -118,6 +118,6 @@ def _build_ssl_model(config, device):
         )
 
     else:
-        raise ValueError(f"Unsupported SSL method: {method}")
+        raise ValueError(f"Unsupported representation learning method: {method}")
 
     return model

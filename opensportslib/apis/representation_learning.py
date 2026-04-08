@@ -1,14 +1,14 @@
-# opensportslib/apis/pretraining.py
+# opensportslib/apis/representation_learning.py
 
-"""Public API for self-supervised pre-training tasks.
+"""Public API for representation learning tasks.
 
-Supports three SSL methods:
+Supports three methods:
     - MAE (Masked Autoencoder / VideoMAE-style)
     - DINO (self-distillation with no labels)
     - SimCLR (contrastive learning)
 
 Handles single-GPU and multi-GPU (DDP) training,
-delegating heavy lifting to Trainer_Pretraining.
+delegating heavy lifting to Trainer_RepresentationLearning.
 """
 
 import os
@@ -16,8 +16,8 @@ import logging
 from opensportslib.core.utils.config import expand
 
 
-class PretrainingAPI:
-    """Top-level entry point for SSL pre-training.
+class RepresentationLearningAPI:
+    """Top-level entry point for representation learning.
 
     Loads a YAML config, resolves paths, and exposes a train()
     method that transparently handles single-GPU and DDP execution.
@@ -51,7 +51,7 @@ class PretrainingAPI:
             save_dir or self.config.SYSTEM.save_dir or "./checkpoints"
         )
         save_filename = os.path.join(
-            f"ssl_{self.config.SSL.method}", self.run_id
+            f"representation_{self.config.REPRESENTATION.method}", self.run_id
         )
         self.config.SYSTEM.save_dir = os.path.join(self.save_dir, save_filename)
         os.makedirs(self.config.SYSTEM.save_dir, exist_ok=True)
@@ -73,7 +73,7 @@ class PretrainingAPI:
         if rank == 0:
             logging.info(f"DATA DIR     : {self.config.DATA.data_dir}")
             logging.info(f"MODEL SAVEDIR: {self.config.SYSTEM.save_dir}")
-            logging.info(f"SSL METHOD   : {self.config.SSL.method}")
+            logging.info(f"METHOD       : {self.config.REPRESENTATION.method}")
 
     # -----------------------------------------------------------------
     # internal DDP worker
@@ -89,27 +89,17 @@ class PretrainingAPI:
         pretrained=None,
         use_wandb=False,
     ):
-        """Execute a single pre-training job on one GPU.
+        """Execute a single representation learning job on one GPU.
 
         Spawned once per GPU by train(). Each process gets its own
-        Trainer_Pretraining instance to avoid shared mutable state.
-
-        Args:
-            rank: GPU rank (0-indexed).
-            world_size: total number of participating GPUs.
-            config: resolved configuration namespace.
-            return_queue: multiprocessing.Queue for returning results.
-            train_dir: path to training data directory.
-            valid_dir: path to validation data directory (optional).
-            pretrained: path to a checkpoint for warm-starting.
-            use_wandb: whether to enable W&B logging.
+        Trainer_RepresentationLearning instance to avoid shared mutable state.
         """
         import torch
-        from opensportslib.core.trainer.pretraining_trainer import Trainer_Pretraining
+        from opensportslib.core.trainer.representation_learning_trainer import Trainer_RepresentationLearning
         from opensportslib.core.utils.ddp import ddp_setup, ddp_cleanup
         from opensportslib.core.utils.wandb import init_wandb
         from opensportslib.core.utils.seed import set_reproducibility
-        from opensportslib.datasets.pretraining_dataset import build as build_pretrain_dataset
+        from opensportslib.datasets.representation_learning_dataset import build as build_repr_dataset
         from opensportslib.models.builder import build_model
 
         # configure logging per process
@@ -136,7 +126,7 @@ class PretrainingAPI:
             from opensportslib.core.utils.config import select_device
             device = select_device(config.SYSTEM)
 
-        trainer = Trainer_Pretraining(config)
+        trainer = Trainer_RepresentationLearning(config)
         trainer.device = device
 
         # build model
@@ -148,10 +138,10 @@ class PretrainingAPI:
         trainer.model = model
 
         # build datasets
-        train_data = build_pretrain_dataset(config, data_dir=train_dir, split="train")
+        train_data = build_repr_dataset(config, data_dir=train_dir, split="train")
         valid_data = None
         if valid_dir:
-            valid_data = build_pretrain_dataset(config, data_dir=valid_dir, split="valid")
+            valid_data = build_repr_dataset(config, data_dir=valid_dir, split="valid")
 
         best_ckpt = trainer.train(
             model, train_data, valid_data,
@@ -177,15 +167,13 @@ class PretrainingAPI:
         use_ddp=False,
         use_wandb=True,
     ):
-        """Run a full SSL pre-training loop.
+        """Run a full representation learning loop.
 
         Args:
             train_dir: path to the training data directory.
-                Defaults to DATA.data_dir from the config.
             valid_dir: path to validation data directory (optional).
             pretrained: optional checkpoint path for warm-starting.
-            use_ddp: if True and more than one GPU is visible,
-                spawn one process per GPU.
+            use_ddp: if True, spawn one process per GPU.
             use_wandb: whether to enable W&B logging.
 
         Returns:
@@ -211,7 +199,7 @@ class PretrainingAPI:
         if use_ddp:
             logging.info(f"Launching DDP on {world_size} GPUs")
             mp.spawn(
-                PretrainingAPI._worker_ddp,
+                RepresentationLearningAPI._worker_ddp,
                 args=(
                     world_size, self.config, queue,
                     train_dir, valid_dir, pretrained, use_wandb,
@@ -219,8 +207,8 @@ class PretrainingAPI:
                 nprocs=world_size,
             )
         else:
-            logging.info("Single GPU pre-training")
-            PretrainingAPI._worker_ddp(
+            logging.info("Single GPU representation learning")
+            RepresentationLearningAPI._worker_ddp(
                 rank=0,
                 world_size=1,
                 config=self.config,

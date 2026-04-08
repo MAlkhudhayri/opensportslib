@@ -1,0 +1,100 @@
+TASK: classification
+
+DATA:
+  dataset_name: sngar
+  data_dir: /ibex/scratch/alkhudmk/sngar-frames
+  data_modality: frames_npy
+  num_frames: 16
+  frame_size: [224, 224]
+  train:
+    path: ${DATA.data_dir}/annotations_train.json
+    dataloader:
+      batch_size: 64
+      shuffle: true
+      num_workers: 8
+      pin_memory: true
+  valid:
+    path: ${DATA.data_dir}/annotations_valid.json
+    dataloader:
+      batch_size: 64
+      num_workers: 8
+      shuffle: false
+  test:
+    path: ${DATA.data_dir}/annotations_test.json
+    dataloader:
+      batch_size: 64
+      num_workers: 8
+      shuffle: false
+  augmentations:
+    random_horizontal_flip: true
+    flip_prob: 0.5
+    color_jitter: true
+    jitter_prob: 0.5
+    jitter_params: [0.2, 0.2, 0.2, 0.1]
+
+MODEL:
+  type: custom
+  backbone:
+    type: ssl_vit
+    pretrained_model: /ibex/scratch/alkhudmk/ssl_checkpoints/ssl_mae/91994282/180/epoch_180.pt
+    hidden_dim: 768
+    patch_size: 16
+    num_frames: 16
+    tubelet_size: 2
+    depth: 12
+    num_heads: 12
+    frame_size: [224, 224]
+    freeze: true
+    unfreeze_last_n_layers: 3    # fine-tune last 3 transformer blocks
+  neck:
+    type: TemporalAggregation
+    agr_type: maxpool
+    hidden_dim: 768
+    dropout: 0.1
+    num_attention_heads: 8
+  head:
+    type: TrackingClassifier
+    hidden_dim: 64
+    num_classes: 10
+    dropout: 0.1
+
+TRAIN:
+  monitor: balanced_accuracy
+  mode: max
+  enabled: true
+  use_amp: true
+  mixup_alpha: 0.2
+  use_weighted_sampler: false
+  use_weighted_loss: false
+  epochs: 100
+  patience: 5
+  log_interval: 10
+  save_every: 5
+  detailed_results: true
+
+  criterion:
+    type: CrossEntropyLoss
+
+  optimizer:
+    type: AdamW
+    lr: 0.0001
+    betas: [0.9, 0.999]
+    eps: 0.0000001
+    weight_decay: 0.0001
+    amsgrad: false
+
+  scheduler:
+    type: ReduceLROnPlateau
+    mode: min
+    patience: 5
+    factor: 0.1
+    min_lr: 1e-8
+
+SYSTEM:
+  log_dir: ./logs
+  save_dir: /ibex/scratch/alkhudmk/ssl_finetune_checkpoints
+  use_seed: true
+  seed: 42
+  GPU: 1
+  device: cuda
+  gpu_id: 0

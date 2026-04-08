@@ -1,42 +1,41 @@
-TASK: pretraining
+TASK: representation_learning
 
-SSL:
+REPRESENTATION:
   method: mae
   mae:
-    mask_ratio: 0.9
+    mask_ratio: 0.75
     mask_type: tube
     norm_pix_loss: true
 
 DATA:
-  data_dir: /ibex/scratch/alkhudmk/sngar-frames/train
+  data_dir: /ibex/scratch/alkhudmk/ssl_test_data/train
   num_frames: 16
   frame_size: [224, 224]
   patch_size: 16
   tubelet_size: 2
-  batch_size: 64
-  num_workers: 8
+  batch_size: 4
+  num_workers: 2
   input_fps: null
   target_fps: null
   augmentations:
-    random_horizontal_flip: true
-    color_jitter: true
-    jitter_params: [0.4, 0.4, 0.4, 0.1]
-    random_crop: true
+    random_horizontal_flip: false
+    color_jitter: false
+    random_crop: false
 
 MODEL:
   encoder:
-    type: vit_base
-    embed_dim: 768
-    depth: 12
-    num_heads: 12
+    type: vit_tiny_test
+    embed_dim: 192
+    depth: 2
+    num_heads: 3
   decoder:
-    depth: 4
-    embed_dim: 256
-    num_heads: 8
+    depth: 1
+    embed_dim: 96
+    num_heads: 3
 
 TRAIN:
-  epochs: 200
-  save_every: 20
+  epochs: 3
+  save_every: 1
   optimizer:
     type: AdamW
     lr: 0.0001
@@ -46,15 +45,15 @@ TRAIN:
     amsgrad: false
   scheduler:
     type: CosineAnnealingLR
-    T_max: 200
-  warmup_epochs: 10
+    T_max: 3
+  warmup_epochs: 1
   save_backbone_only: true
 
 SYSTEM:
   log_dir: ./logs
-  save_dir: /ibex/scratch/alkhudmk/ssl_checkpoints
+  save_dir: /ibex/scratch/alkhudmk/ssl_test_checkpoints
   use_seed: true
   seed: 42
-  GPU: 4
+  GPU: 1
   device: cuda
   gpu_id: 0

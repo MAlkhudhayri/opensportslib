@@ -84,6 +84,8 @@ def build_backbone(cfg, default_args=None):
         backbone = TorchvisionVideoExtractFeatures(cfg.type)
     elif cfg.type in ["dinov3", "clip", "videomae", "videomae2"]:
         backbone = VideoBackbone(cfg)
+    elif cfg.type == "ssl_vit":
+        backbone = SSLViTBackbone(cfg)
     else:
         backbone = None
 
@@ -587,4 +589,127 @@ class VideoBackbone(nn.Module):
                 x_vid = x.permute(0, 4, 1, 2, 3)             # (B, C, T, H, W)
                 feat = self.model.extract_features(pixel_values=x_vid)  # (B, hidden_dim)
                 return feat.unsqueeze(1)                      # (B, 1, hidden_dim)
+
+
+class SSLViTBackbone(nn.Module):
+    """Backbone that loads a ViT encoder pre-trained with our SSL pipeline.
+
+    Loads the encoder checkpoint saved by MAE/DINO/SimCLR pre-training
+    and exposes the same interface as VideoBackbone: input (B, T, H, W, C)
+    → output (B, 1, hidden_dim).
+
+    Args:
+        cfg: MODEL.backbone config node. Required fields:
+            type (str): "ssl_vit"
+            pretrained_model (str): path to the SSL checkpoint (.pt file)
+            hidden_dim (int): encoder embedding dimension (must match checkpoint)
+            patch_size (int): spatial patch size (default: 16)
+            num_frames (int): temporal length of input clips (default: 16)
+            tubelet_size (int): temporal patch size (default: 2)
+            depth (int): number of transformer blocks (default: 12)
+            num_heads (int): number of attention heads (default: 12)
+            freeze (bool): if True, freeze all backbone weights first
+            unfreeze_last_n_layers (int): number of encoder layers to thaw
+    """
+
+    def __init__(self, cfg):
+        super().__init__()
+
+        self.feat_dim = cfg.hidden_dim
+
+        # build the ViT encoder architecture
+        from opensportslib.models.representation.mae import PatchEmbed3D, TransformerBlock
+
+        img_size = tuple(getattr(cfg, "frame_size", (224, 224)))
+        patch_size = getattr(cfg, "patch_size", 16)
+        num_frames = getattr(cfg, "num_frames", 16)
+        tubelet_size = getattr(cfg, "tubelet_size", 2)
+        embed_dim = cfg.hidden_dim
+        depth = getattr(cfg, "depth", 12)
+        num_heads = getattr(cfg, "num_heads", 12)
+
+        self.patch_embed = PatchEmbed3D(
+            img_size=img_size,
+            patch_size=patch_size,
+            num_frames=num_frames,
+            tubelet_size=tubelet_size,
+            in_channels=3,
+            embed_dim=embed_dim,
+        )
+        num_patches = self.patch_embed.num_patches
+
+        self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+        self.pos_embed = nn.Parameter(torch.zeros(1, num_patches + 1, embed_dim))
+        self.blocks = nn.ModuleList(
+            [TransformerBlock(embed_dim, num_heads) for _ in range(depth)]
+        )
+        self.norm = nn.LayerNorm(embed_dim)
+
+        # load pre-trained weights
+        pretrained = getattr(cfg, "pretrained_model", None)
+        if pretrained:
+            print(f"Loading SSL pre-trained encoder from: {pretrained}")
+            ckpt = torch.load(pretrained, map_location="cpu", weights_only=False)
+            state_dict = ckpt["state_dict"] if "state_dict" in ckpt else ckpt
+            missing, unexpected = self.load_state_dict(state_dict, strict=False)
+            print(f"  Loaded: {len(state_dict)} keys, missing: {len(missing)}, unexpected: {len(unexpected)}")
+            if missing:
+                print(f"  Missing keys: {missing[:5]}")
+            if unexpected:
+                print(f"  Unexpected keys: {unexpected[:5]}")
+
+        # freeze / unfreeze
+        self._apply_freeze(cfg)
+        self._fully_frozen = (
+            getattr(cfg, "freeze", True)
+            and getattr(cfg, "unfreeze_last_n_layers", 0) == 0
+        )
+
+        trainable = [n for n, p in self.named_parameters() if p.requires_grad]
+        print(f"SSLViTBackbone trainable params: {len(trainable)}")
+
+    def _apply_freeze(self, cfg):
+        freeze = getattr(cfg, "freeze", True)
+        if not freeze:
+            return
+
+        for param in self.parameters():
+            param.requires_grad = False
+
+        n = getattr(cfg, "unfreeze_last_n_layers", 0)
+        if n > 0:
+            for block in self.blocks[-n:]:
+                for param in block.parameters():
+                    param.requires_grad = True
+            # always unfreeze the final norm
+            for param in self.norm.parameters():
+                param.requires_grad = True
+
+    def forward(self, x):
+        """
+        Args:
+            x: (B, T, H, W, C) float32
+
+        Returns:
+            (B, 1, hidden_dim) — CLS token representation
+        """
+        B, T, H, W, C = x.shape
+
+        # (B, T, H, W, C) → (B, C, T, H, W)
+        x = x.permute(0, 4, 1, 2, 3)
+
+        with torch.set_grad_enabled(self.training and not self._fully_frozen):
+            x = self.patch_embed(x)  # (B, N, D)
+            x = x + self.pos_embed[:, 1:, :]
+
+            cls = self.cls_token + self.pos_embed[:, :1, :]
+            cls = cls.expand(B, -1, -1)
+            x = torch.cat([cls, x], dim=1)
+
+            for blk in self.blocks:
+                x = blk(x)
+            x = self.norm(x)
+
+        feat = x[:, 0, :]  # CLS token → (B, hidden_dim)
+        return feat.unsqueeze(1)  # (B, 1, hidden_dim)
 

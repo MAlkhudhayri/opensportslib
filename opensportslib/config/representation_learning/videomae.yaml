@@ -1,6 +1,6 @@
-TASK: pretraining
+TASK: representation_learning
 
-SSL:
+REPRESENTATION:
   method: mae
   mae:
     mask_ratio: 0.9

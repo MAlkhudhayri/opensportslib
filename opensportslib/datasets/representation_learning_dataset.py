@@ -1,10 +1,11 @@
-# opensportslib/datasets/pretraining_dataset.py
+# opensportslib/datasets/representation_learning_dataset.py
 
-"""Dataset for self-supervised video pre-training.
+"""Dataset for representation learning.
 
-Loads unlabeled video clips for SSL methods (MAE, DINO, SimCLR).
-For MAE a single clip is returned; for contrastive and distillation
-methods two augmented views of the same clip are produced.
+Loads unlabeled video clips for representation learning methods
+(MAE, DINO, SimCLR). For MAE a single clip is returned; for
+contrastive and distillation methods two augmented views of the
+same clip are produced.
 """
 
 import os
@@ -22,12 +23,12 @@ from opensportslib.core.utils.video_processing import (
 )
 
 
-class PretrainingDataset(Dataset):
-    """Base dataset for self-supervised pre-training on unlabeled video.
+class RepresentationLearningDataset(Dataset):
+    """Dataset for representation learning on unlabeled video.
 
     Scans a directory tree for video files (.mp4, .avi, .mkv) or
     pre-extracted frame arrays (.npy) and returns clips suitable for
-    the configured SSL method.
+    the configured representation learning method.
 
     Args:
         config: full configuration namespace.
@@ -42,7 +43,7 @@ class PretrainingDataset(Dataset):
         super().__init__()
         self.config = config
         self.split = split
-        self.ssl_method = config.SSL.method.lower()
+        self.method = config.REPRESENTATION.method.lower()
 
         data_dir = data_dir or config.DATA.data_dir
         self.data_dir = data_dir
@@ -59,7 +60,7 @@ class PretrainingDataset(Dataset):
                 f"No video or .npy files found under {data_dir}"
             )
         logging.info(
-            f"[PretrainingDataset] Found {len(self.samples)} clips "
+            f"[RepresentationLearningDataset] Found {len(self.samples)} clips "
             f"in {data_dir} (split={split})"
         )
 
@@ -67,7 +68,7 @@ class PretrainingDataset(Dataset):
         self.transform = build_transform(config, mode=split)
 
         # for contrastive / DINO methods, we need a second augmentation
-        self.multi_view = self.ssl_method in ("dino", "simclr")
+        self.multi_view = self.method in ("dino", "simclr")
 
     def _discover_files(self, root):
         """Recursively find all supported media files."""
@@ -176,7 +177,7 @@ class PretrainingDataset(Dataset):
 
 
 def build(config, data_dir=None, split="train"):
-    """Factory function for the pretraining dataset.
+    """Factory function for the representation learning dataset.
 
     Args:
         config: full configuration namespace.
@@ -184,6 +185,6 @@ def build(config, data_dir=None, split="train"):
         split: "train" or "valid".
 
     Returns:
-        PretrainingDataset instance.
+        RepresentationLearningDataset instance.
     """
-    return PretrainingDataset(config, data_dir=data_dir, split=split)
+    return RepresentationLearningDataset(config, data_dir=data_dir, split=split)
