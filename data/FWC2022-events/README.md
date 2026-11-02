@@ -40,3 +40,18 @@ in GAR but was held out of training in all reported experiments.
 
 `pff_labels.py`, `fdp_labels.py` rebuild the labels from the raw feeds and the
 crosswalks; `crosswalk2.py`, `fdp_crosswalk.py` refit the offsets.
+
+## Merged: skeleton headers x FDP
+
+`FWC2022-skeleton-headers-x-FDP.json` / `.h5` merge the rule's header
+detections shipped with FWC2022-skeleton-headers (11,435, each with the FIFA
+player id of the heading player) with the FDP events of the 15 classes above
+(90,390 rows; a row played with the head is labelled HEADER and keeps its FDP
+class in `class`). Both sources use FIFA player ids, so headers are matched by
+player and time: of 4,227 FDP headers, 3,974 have a rule header within 500 ms
+and 3,867 of those are the same player. `match_index` is the position of the
+matched event in the same game's list, -1 if none; `source` is
+`skeleton_rule` or `fdp`. Per event: label, class, event (FDP event name),
+timestamp_utc, position_ms, frame (nearest 50 Hz ball frame), ball_half,
+player_id, to_player_id, team, body_type, outcome, confidence_score (rule only).
+Built by `merge_skeleton_fdp.py`.
